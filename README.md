@@ -1,24 +1,24 @@
 # tts-cli
 
-A command-line utility to convert text files to speech audio using the Azure Speech SDK.
+A CLI tool to synthesize voice from a text file using an AI API.
 
 ## Installation
 
-1. Ensure [Python 3](https://www.python.org) is installed.
-2. Install dependencies:
-   ```bash
-   pip install azure-cognitiveservices-speech PyPDF2 python-docx
-   ```
-3. Install the CLI tool:
-   ```bash
-   pip install -e .
-   ```
-4. Clone this repository and navigate to the project directory.
+Install directly from GitHub:
+```bash
+pip install git+https://github.com/ShinChven/tts-cli.git
+```
+
+## Upgrade
+
+Upgrade the CLI using pip:
+```bash
+pip install --upgrade git+https://github.com/ShinChven/tts-cli.git
+```
 
 ## Configuration
 
-Create a config file at `~/.local/tts-cli/config.json` with provider settings:
-
+Create a configuration file at `~/.local/tts-cli/config.json`. Example:
 ```json
 {
     "default_provider": "azure",
@@ -36,16 +36,22 @@ Create a config file at `~/.local/tts-cli/config.json` with provider settings:
 
 ## Usage
 
-Convert a file (supported formats: .txt, .md, .pdf, .doc, .docx) to speech audio:
-
+Run the CLI with:
 ```bash
-python tts_cli/main.py path/to/your/file.txt
+tts path/to/your/file.txt
+```
+Or directly via Python:
+```bash
+python -m tts_cli.main path/to/your/file.txt
 ```
 
-The audio file will be saved with the same base name and an appropriate extension.
+### Arguments
 
-## Troubleshooting
+- file: The path to the input text file.
+- -f, --force: Force multi-chunk synthesis without confirmation.
 
-- Verify that the configuration file exists and is properly set up.
-- Confirm all required dependencies are installed.
-- Check your Azure Speech credentials if you encounter errors.
+The tool will save the synthesized audio file with the same basename as the input file and the appropriate extension.
+
+## Repository
+
+https://github.com/ShinChven/tts-cli.git

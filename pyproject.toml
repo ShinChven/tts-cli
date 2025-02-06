@@ -2,11 +2,17 @@
 name = "tts_cli"
 version = "0.1.0"
 description = "CLI to convert text files to voice audio using Azure Speech Studio"
+# Added author and repository information
+authors = [
+  {name = "ShinChven", email = "shinchven@gmail.com"}
+]
+urls = {
+  "Repository" = "https://github.com/ShinChven/tts-cli.git"
+}
 dependencies = [
   "azure-cognitiveservices-speech",
   "PyPDF2",
   "python-docx",
-  "pydub"
 ]
 
 [project.scripts]
