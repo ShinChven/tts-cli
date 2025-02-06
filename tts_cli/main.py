@@ -39,7 +39,7 @@ def read_text_file(filepath):
     else:
         raise Exception("Unsupported file format!")
 
-def synthesize_azure(text, provider_config, output_file):
+def synthesize_azure(text, provider_config, output_file, force=False):
     speech_key = provider_config.get("speech_key")
     service_region = provider_config.get("service_region")
     voice_name = provider_config.get("voice")
@@ -62,6 +62,12 @@ def synthesize_azure(text, provider_config, output_file):
             return textwrap.wrap(text, width=max_length, break_long_words=False, break_on_hyphens=False)
         chunks = chunk_text(text, max_length)
         total = len(chunks)
+        # Prompt confirmation if more than one chunk and force flag not set
+        if total > 1 and not force:
+            answer = input(f"This text will be split into {total} chunks. Proceed? (Y/n): ")
+            if answer.strip().lower().startswith("n"):
+                print("Aborting multi-chunk synthesis.")
+                return
         base_audio = os.path.splitext(output_file)[0]
         chunk_files = []  # Track individual chunk audio files
         for i, chunk in enumerate(chunks, start=1):
@@ -128,6 +134,8 @@ def synthesize_azure(text, provider_config, output_file):
 def main():
     parser = argparse.ArgumentParser(description="Convert text files to speech audio.")
     parser.add_argument("file", help="Path to the input text file")
+    parser.add_argument("-f", "--force", action="store_true", default=False,
+                        help="Force multi-chunk synthesis without confirmation")
     args = parser.parse_args()
 
     filepath = args.file
@@ -152,7 +160,7 @@ def main():
     print(f"Text saved to {text_output_file}")
 
     if provider_type == "azure":
-        synthesize_azure(text, provider_conf, output_file)
+        synthesize_azure(text, provider_conf, output_file, force=args.force)
     else:
         print("Provider not supported yet.")
 
