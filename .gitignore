@@ -225,3 +225,9 @@ Backup of *.doc*
 # Visio autosave temporary files
 *.~vsd*
 
+### Python template
+*.egg-info/
+__pycache__/
+build/
+dist/
+

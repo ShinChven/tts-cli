@@ -5,8 +5,12 @@ description = "CLI to convert text files to voice audio using Azure Speech Studi
 dependencies = [
   "azure-cognitiveservices-speech",
   "PyPDF2",
-  "python-docx"
+  "python-docx",
+  "pydub"
 ]
+
+[project.scripts]
+tts = "tts_cli.main:main"
 
 [build-system]
 requires = ["setuptools", "wheel"]
