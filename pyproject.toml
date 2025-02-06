@@ -6,13 +6,11 @@ description = "CLI to convert text files to voice audio using Azure Speech Studi
 authors = [
   {name = "ShinChven", email = "shinchven@gmail.com"}
 ]
-urls = {
-  "Repository" = "https://github.com/ShinChven/tts-cli.git"
-}
+urls = {"Repository" = "https://github.com/ShinChven/tts-cli.git"}
 dependencies = [
   "azure-cognitiveservices-speech",
   "PyPDF2",
-  "python-docx",
+  "python-docx"
 ]
 
 [project.scripts]
