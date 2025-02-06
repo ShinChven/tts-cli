@@ -42,6 +42,8 @@ Supported file types:
 - .pdf
 - .doc
 - .docx
+- .ppt
+- .pptx
 
 Run the CLI with:
 ```bash
