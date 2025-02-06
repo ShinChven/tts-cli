@@ -133,13 +133,16 @@ def main():
     filepath = args.file
     text = read_text_file(filepath)
     config = load_config()
-    # Updated default provider loading
     default_provider_key = config.get("default_provider")
     provider_conf = config.get("providers", {}).get(default_provider_key, {})
     provider_type = provider_conf.get("type")
+    output_format = provider_conf.get("output_format", "wav")
+
+    # Log current provider information including provider key
+    print(f"Using provider key: {default_provider_key}, type: {provider_type}, output file type: {output_format}")
 
     base_name = os.path.splitext(filepath)[0]
-    output_ext = f".{provider_conf.get('output_format', 'wav')}"
+    output_ext = f".{output_format}"
     output_file = base_name + output_ext
 
     # Output full text sent to TTS engine
