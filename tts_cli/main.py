@@ -36,6 +36,18 @@ def read_text_file(filepath):
         for para in doc.paragraphs:
             text.append(para.text)
         return "\n".join(text)
+    elif ext in ['.ppt', '.pptx']:
+        try:
+            from pptx import Presentation
+        except ImportError:
+            raise Exception("Please install 'python-pptx' to support ppt/pptx files")
+        prs = Presentation(filepath)
+        slides_text = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    slides_text.append(shape.text)
+        return "\n".join(slides_text)
     else:
         raise Exception("Unsupported file format!")
 

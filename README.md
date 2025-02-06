@@ -36,6 +36,13 @@ Create a configuration file at `~/.local/tts-cli/config.json`. Example:
 
 ## Usage
 
+Supported file types:
+- .txt
+- .md
+- .pdf
+- .doc
+- .docx
+
 Run the CLI with:
 ```bash
 tts path/to/your/file.txt
