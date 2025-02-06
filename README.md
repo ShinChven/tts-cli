@@ -64,3 +64,7 @@ The tool will save the synthesized audio file with the same basename as the inpu
 ## Repository
 
 https://github.com/ShinChven/tts-cli.git
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
