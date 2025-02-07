@@ -1,6 +1,6 @@
 [project]
 name = "tts_cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI to convert text files to voice audio using Azure Speech Studio"
 # Added author and repository information
 authors = [

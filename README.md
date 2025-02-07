@@ -44,6 +44,7 @@ Supported file types:
 - .docx
 - .ppt
 - .pptx
+- Supports http and https URLs for text extraction.
 
 Run the CLI with:
 ```bash
