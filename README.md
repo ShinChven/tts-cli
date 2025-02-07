@@ -1,6 +1,13 @@
 # tts-cli
 
-A CLI tool to synthesize voice from a text file using an AI API.
+A CLI tool to synthesize voice from a text file or a URL using an AI API.
+
+## Features
+- Converts text files (.txt, .md, .pdf, .doc, .docx, .ppt, .pptx) into audio.
+- Supports HTTP/HTTPS URLs for text extraction.
+- Splits long texts into manageable chunks.
+- Uses Azure Speech SDK for synthesis.
+- Merges audio chunks seamlessly.
 
 ## Installation
 
@@ -36,15 +43,9 @@ Create a configuration file at `~/.local/tts-cli/config.json`. Example:
 
 ## Usage
 
-Supported file types:
-- .txt
-- .md
-- .pdf
-- .doc
-- .docx
-- .ppt
-- .pptx
-- Supports http and https URLs for text extraction.
+Supported input types:
+- Local files: .txt, .md, .pdf, .doc, .docx, .ppt, .pptx
+- Web URLs: Supports http and https URLs for text extraction.
 
 Run the CLI with:
 ```bash
@@ -55,12 +56,19 @@ Or directly via Python:
 python -m tts_cli.main path/to/your/file.txt
 ```
 
-### Arguments
+### Additional Details
 
-- file: The path to the input text file.
-- -f, --force: Force multi-chunk synthesis without confirmation.
+- When a URL is provided, the tool fetches the page content and automatically extracts the main article text.
+- For long texts, the tool splits the content into chunks and merges the audio segments.
+- Use the `-f` or `--force` flag to bypass confirmation prompts during multi-chunk synthesis.
+- Requires ffmpeg to merge audio chunks. Please install ffmpeg and ensure it is in your system PATH.
 
-The tool will save the synthesized audio file with the same basename as the input file and the appropriate extension.
+## Troubleshooting
+
+- Ensure your configuration file (`config.json`) is correctly formatted and placed in `~/.local/tts-cli/`.
+- Verify that all required dependencies are installed (e.g., PyPDF2, python-pptx).
+- If using URLs, make sure the URL is accessible and returns valid HTML content.
+- If you encounter errors with speech synthesis, check your Azure Speech credentials.
 
 ## Repository
 
