@@ -12,7 +12,9 @@ dependencies = [
   "azure-cognitiveservices-speech",
   "PyPDF2",
   "python-docx",
-	'python-pptx'
+  "python-pptx",
+  "requests",
+  "beautifulsoup4"
 ]
 
 [project.scripts]

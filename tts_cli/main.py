@@ -4,6 +4,10 @@ import argparse
 
 # For Azure Speech SDK
 import azure.cognitiveservices.speech as speechsdk
+import requests
+from bs4 import BeautifulSoup
+import re
+from urllib.parse import urlparse
 
 def load_config():
     config_path = os.path.expanduser("~/.local/tts-cli/config.json")
@@ -50,6 +54,26 @@ def read_text_file(filepath):
         return "\n".join(slides_text)
     else:
         raise Exception("Unsupported file format!")
+
+def extract_url_text(url):
+    response = requests.get(url)
+    response.raise_for_status()  # raise error for bad status
+    soup = BeautifulSoup(response.content, "html.parser")
+    article = soup.find("article")
+    if article:
+        return article.get_text(separator=" ", strip=True)
+    main_tag = soup.find("main")
+    if main_tag:
+        return main_tag.get_text(separator=" ", strip=True)
+    # Fallback: remove common non-article tags
+    for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+        tag.decompose()
+    return soup.body.get_text(separator=" ", strip=True)
+
+def sanitize_filename(name):
+    parsed = urlparse(name)
+    combined = (parsed.netloc + parsed.path).strip("/")
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", combined)
 
 def synthesize_azure(text, provider_config, output_file, force=False):
     speech_key = provider_config.get("speech_key")
@@ -124,13 +148,13 @@ def synthesize_azure(text, provider_config, output_file, force=False):
             for i, audio_file in enumerate(chunk_files, start=1):
                 try:
                     os.remove(audio_file)
-                    print(f"Removed temporary file {audio_file}")
+                    # Removed logging for successful removal of audio file.
                 except OSError as e:
                     print(f"Error removing file {audio_file}: {e}")
                 text_file = f"{base_audio}_part{i}-text.txt"
                 try:
                     os.remove(text_file)
-                    print(f"Removed temporary text file {text_file}")
+                    # Removed logging for successful removal of text file.
                 except OSError as e:
                     print(f"Error removing text file {text_file}: {e}")
     else:
@@ -151,7 +175,14 @@ def main():
     args = parser.parse_args()
 
     filepath = args.file
-    text = read_text_file(filepath)
+    if filepath.startswith("http://") or filepath.startswith("https://"):
+        print("Extracting text from URL...")
+        text = extract_url_text(filepath)
+        base_name = sanitize_filename(filepath)
+    else:
+        text = read_text_file(filepath)
+        base_name = os.path.splitext(filepath)[0]
+
     config = load_config()
     default_provider_key = config.get("default_provider")
     provider_conf = config.get("providers", {}).get(default_provider_key, {})
@@ -161,7 +192,6 @@ def main():
     # Log current provider information including provider key
     print(f"Using provider key: {default_provider_key}, type: {provider_type}, output file type: {output_format}")
 
-    base_name = os.path.splitext(filepath)[0]
     output_ext = f".{output_format}"
     output_file = base_name + output_ext
 
