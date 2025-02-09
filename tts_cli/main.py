@@ -18,6 +18,21 @@ def load_config():
     with open(config_path, "r") as f:
         return json.load(f)
 
+# Updated function to clean text keeping only speakable content.
+def clean_text(text):
+    # Remove markdown code blocks
+    text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+    # Remove markdown images and links
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'\[.*?\]\(.*?\)', '', text)
+    # Remove markdown headers
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    # Remove extra unspeakable symbols (keep alphanumerics, whitespace, common punctuation)
+    text = re.sub(r'[^\w\s\.,!?\'"\-]', '', text)
+    # Remove extra whitespace and newlines
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
 def read_text_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     if ext in ['.txt', '.md']:
@@ -321,7 +336,10 @@ def main():
     else:
         text = read_text_file(filepath)
         base_name = os.path.splitext(filepath)[0]
-
+    
+    # Clean text to keep only speakable content.
+    text = clean_text(text)
+    
     config = load_config()
     default_provider_key = config.get("default_provider")
     provider_conf = config.get("providers", {}).get(default_provider_key, {})
