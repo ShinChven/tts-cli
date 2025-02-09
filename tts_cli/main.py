@@ -172,37 +172,83 @@ def synthesize_azure(text, provider_config, output_file, force=False):
 
 def synthesize_google(text, provider_config, output_file):
     max_bytes = 3000  # Google Cloud TTS limit in bytes
-    SENTENCE_MAX_BYTES = 200  # Constant for checking long sentences
+    max_sentence_bytes = 200 # Maximum byte size for a single sentence
 
-    # Updated function: if sentence exceeds SENTENCE_MAX_BYTES, insert a comma instead of splitting
-    def chunk_text_by_bytes(text, max_bytes):
+    def split_long_sentence(text, max_sentence_bytes):
         sentences = re.split(r'(?<=[.!?])\s+', text)
-        chunks = []
-        current_chunk = ""
+        split_sentences = []
         for sentence in sentences:
-            if len(sentence.encode("utf-8")) > SENTENCE_MAX_BYTES:
-                # Insert a comma at the cutoff point (approximate; assumes mostly ASCII)
-                cutoff = SENTENCE_MAX_BYTES
-                sentence = sentence[:cutoff] + "," + sentence[cutoff:]
-            candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
-            if len(candidate.encode("utf-8")) > max_bytes:
-                if current_chunk:
-                    chunks.append(current_chunk)
-                current_chunk = sentence
+            if len(sentence.encode('utf-8')) > max_sentence_bytes:
+                # Split the long sentence by commas
+                comma_split = sentence.split(',')
+
+                # If even comma split doesn't work, force split by space
+                if any(len(s.encode('utf-8')) > max_sentence_bytes for s in comma_split):
+                    space_split = sentence.split(' ')
+
+                    # If even space split doesn't work, force split by characters
+                    if any(len(s.encode('utf-8')) > max_sentence_bytes for s in space_split):
+                        print("Force splitting extremely long word/sequence.")
+                        cutoff = max_sentence_bytes // 3
+                        i = 0
+                        while i < len(sentence):
+                            split_sentences.append(sentence[i:i+cutoff])
+                            i += cutoff
+                    else:
+                        # Rejoin space split
+                        current_sentence = ""
+                        for word in space_split:
+                            if len((current_sentence + " " + word).encode('utf-8')) <= max_sentence_bytes:
+                                current_sentence += " " + word
+                            else:
+                                split_sentences.append(current_sentence.strip())
+                                current_sentence = word
+                        if current_sentence:
+                            split_sentences.append(current_sentence.strip())
+                else:
+                    # Rejoin comma split
+                    current_sentence = ""
+                    for part in comma_split:
+                        if len((current_sentence + "," + part).encode('utf-8')) <= max_sentence_bytes:
+                            current_sentence += "," + part
+                        else:
+                            split_sentences.append(current_sentence.strip(','))
+                            current_sentence = part
+                    if current_sentence:
+                        split_sentences.append(current_sentence.strip(','))
             else:
-                current_chunk = candidate
-        if current_chunk:
-            chunks.append(current_chunk)
-        return chunks
+                split_sentences.append(sentence)
+        return ". ".join(split_sentences)
 
     if len(text.encode("utf-8")) > max_bytes:
         print(f"Text byte length ({len(text.encode('utf-8'))}) exceeds {max_bytes}, splitting into chunks.")
+
+        # Splitting into chunks by max_bytes
+        def chunk_text_by_bytes(text, max_bytes):
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            chunks = []
+            current_chunk = ""
+            for sentence in sentences:
+                candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+                if len(candidate.encode("utf-8")) > max_bytes:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = sentence
+                else:
+                    current_chunk = candidate
+            if current_chunk:
+                chunks.append(current_chunk)
+            return chunks
+
         chunks = chunk_text_by_bytes(text, max_bytes)
         total = len(chunks)
         base_audio = os.path.splitext(output_file)[0]
         output_ext = os.path.splitext(output_file)[1]
         chunk_files = []  # Track individual chunk audio files
         for i, chunk in enumerate(chunks, start=1):
+            # Split long sentences within the chunk
+            chunk = split_long_sentence(chunk, max_sentence_bytes)
+
             part_file = f"{base_audio}_part{i}{output_ext}"
             chunk_files.append(part_file)
             chunk_text_file = f"{base_audio}_part{i}-text.txt"
@@ -262,6 +308,9 @@ def synthesize_google(text, provider_config, output_file):
             except OSError as e:
                 print(f"Error removing text file {text_file}: {e}")
     else:
+        # Split long sentences within the text
+        text = split_long_sentence(text, max_sentence_bytes)
+
         client = texttospeech.TextToSpeechClient()
         voice_name = provider_config.get("voice", "en-US-Wavenet-D")
         language_code = "-".join(voice_name.split("-")[:2])
