@@ -47,6 +47,21 @@ Create a configuration file at `~/.local/tts-cli/config.json`. Example:
 }
 ```
 
+## Google Cloud Credentials Setup
+
+To enable authentication for Google Cloud Text-to-Speech, use the Google Cloud CLI. Simply run:
+```bash
+gcloud init
+gcloud auth application-default login
+```
+These commands will generate a credentials.json file and print out its file path. Add this path to your configuration file under the `credentials_json` field for the Google provider.
+
+You can also switch the active Google Cloud project before generating credentials using:
+```bash
+gcloud config set project <project_id>
+```
+For more details, see [Google Cloud Authentication Documentation](https://cloud.google.com/text-to-speech/docs/authentication#client-libs).
+
 ## Usage
 
 Supported input types:
