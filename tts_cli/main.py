@@ -169,7 +169,7 @@ def synthesize_azure(text, provider_config, output_file, force=False):
 
 def synthesize_google(text, provider_config, output_file):
     from google.cloud import texttospeech
-    max_bytes = 5000  # Google Cloud TTS limit in bytes
+    max_bytes = 3000  # Google Cloud TTS limit in bytes
 
     # Function to split text ensuring each chunk's byte-length is under max_bytes
     def chunk_text_by_bytes(text, max_bytes):
