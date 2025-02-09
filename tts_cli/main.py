@@ -3,6 +3,7 @@ import json
 import argparse
 import re  # already imported globally
 from urllib.parse import urlparse
+import threading # New import
 
 # For Azure Speech SDK
 import azure.cognitiveservices.speech as speechsdk
@@ -176,6 +177,19 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
     max_sentence_bytes = 100  # Maximum byte size for a single sentence
     base_audio = os.path.splitext(output_file)[0]
     output_ext = os.path.splitext(output_file)[1]
+    state_file = f"{base_audio}_state.json"  # Define state file name
+    state_lock = threading.Lock() # Create a lock
+
+    def save_state(state):
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=4)
+
+    def load_state():
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
 
     def split_long_sentence(sentence, max_sentence_bytes):
         if len(sentence.encode('utf-8')) <= max_sentence_bytes:
@@ -201,48 +215,70 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
                 split_sentences.append(current_sentence.strip())
             return split_sentences
 
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    # Load state if it exists, otherwise initialize
+    state = load_state()
     chunks = []
-    current_chunk = ""
-    current_chunk_bytes = 0
-    sentence_index = 0
+    if state is None:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        current_chunk = ""
+        current_chunk_bytes = 0
+        sentence_index = 0
 
-    while sentence_index < len(sentences):
-        sentence = sentences[sentence_index]
-        sentence_bytes = len(sentence.encode("utf-8"))
+        while sentence_index < len(sentences):
+            sentence = sentences[sentence_index]
+            sentence_bytes = len(sentence.encode("utf-8"))
 
-        if current_chunk_bytes + sentence_bytes <= max_bytes:
-            current_chunk += (" " + sentence) if current_chunk else sentence
-            current_chunk_bytes += sentence_bytes
-            sentence_index += 1
-        else:
-            if not current_chunk:  # If the sentence is too long for an empty chunk
-                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
-                for split_sentence in split_sentences:
-                    split_sentence_bytes = len(split_sentence.encode("utf-8"))
-                    if current_chunk_bytes + split_sentence_bytes <= max_bytes:
-                        current_chunk += (" " + split_sentence) if current_chunk else split_sentence
-                        current_chunk_bytes += split_sentence_bytes
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = split_sentence
-                        current_chunk_bytes = len(split_sentence.encode("utf-8"))
+            if current_chunk_bytes + sentence_bytes <= max_bytes:
+                current_chunk += (" " + sentence) if current_chunk else sentence
+                current_chunk_bytes += sentence_bytes
                 sentence_index += 1
             else:
-                chunks.append(current_chunk)
-                current_chunk = ""
-                current_chunk_bytes = 0
+                if not current_chunk:  # If the sentence is too long for an empty chunk
+                    split_sentences = split_long_sentence(sentence, max_sentence_bytes)
+                    for split_sentence in split_sentences:
+                        split_sentence_bytes = len(split_sentence.encode("utf-8"))
+                        if current_chunk_bytes + split_sentence_bytes <= max_bytes:
+                            current_chunk += (" " + split_sentence) if current_chunk else split_sentence
+                            current_chunk_bytes += split_sentence_bytes
+                        else:
+                            if current_chunk:
+                                chunks.append(current_chunk)
+                            current_chunk = split_sentence
+                            current_chunk_bytes = len(split_sentence.encode("utf-8"))
+                    sentence_index += 1
+                else:
+                    chunks.append(current_chunk)
+                    current_chunk = ""
+                    current_chunk_bytes = 0
 
-    if current_chunk:
-        chunks.append(current_chunk)
+            if current_chunk:
+                chunks.append(current_chunk)
+        state = {"completed_chunks": [], "chunks": chunks}
+        save_state(state)  # Save the initial state to create the file
+    else:
+        chunks = state["chunks"]
+
+    completed_chunks = state["completed_chunks"]
 
     total = len(chunks)
-    chunk_files = []
+
+    # Print information before starting synthesis
+    total_chars = len(text)
+    print(f"Total characters: {total_chars}")
+    print(f"Number of batches: {total}")
+    completed_count = len(completed_chunks)
+    print(f"Resuming from {completed_count + 1}/{total}" if completed_count > 0 else "Starting from scratch")
+    print("Progress: 0.00%")
 
     def synthesize_chunk(i, chunk):
         part_file = f"{base_audio}_part{i+1}{output_ext}"
-        chunk_files.append(part_file)
+
+        if part_file in completed_chunks and os.path.exists(part_file):
+            print(f"Chunk {i+1} already synthesized, skipping.")
+            progress = (i + 1) / total * 100
+            print(f"Progress: {progress:.2f}%")
+            return  # Skip synthesis if file exists
+
         chunk_text_file = f"{base_audio}_part{i+1}-text.txt"
         with open(chunk_text_file, "w", encoding="utf-8") as f:
             f.write(chunk)
@@ -270,6 +306,13 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
             out.write(response.audio_content)
         print(f"Chunk {i+1} saved to {part_file}")
 
+        # Save state after each chunk
+        with state_lock: # Acquire the lock
+            completed_chunks.append(part_file)
+            save_state({"completed_chunks": completed_chunks, "chunks": chunks})
+        progress = (i + 1) / total * 100
+        print(f"Progress: {progress:.2f}%")
+
     # Concurrent synthesis
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         executor.map(lambda item: synthesize_chunk(item[0], item[1]), enumerate(chunks))
@@ -278,7 +321,7 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
     import subprocess
     temp_list = f"{base_audio}_filelist.txt"
     with open(temp_list, "w", encoding="utf-8") as f:
-        for file in chunk_files:
+        for file in completed_chunks:
             f.write(f"file '{os.path.abspath(file)}'\n")
     cmd = [
         "ffmpeg",
@@ -292,7 +335,12 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
     subprocess.run(cmd, check=True)
     print(f"Merged audio saved to {output_file}")
     os.remove(temp_list)
-    for file in chunk_files:
+    # Clean up state file
+    try:
+        os.remove(state_file)
+    except OSError as e:
+        print(f"Error removing state file {state_file}: {e}")
+    for file in completed_chunks:
         try:
             os.remove(file)
         except OSError as e:
