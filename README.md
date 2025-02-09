@@ -84,6 +84,7 @@ python -m tts_cli.main path/to/your/file.txt
 - Use the `-f` or `--force` flag to bypass confirmation prompts during multi-chunk synthesis.
 - Requires ffmpeg to merge audio chunks. Please install ffmpeg and ensure it is in your system PATH.
 - Google Cloud Text-to-Speech also supports text chunking for long texts.
+- Google Cloud Text-to-Speech supports batching and continuing from the last processed chunk.
 
 ## Troubleshooting
 
