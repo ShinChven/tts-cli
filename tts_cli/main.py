@@ -186,7 +186,7 @@ def synthesize_azure(text, provider_config, output_file, force=False):
         print(f"Audio saved to {output_file}")
 
 def synthesize_google(text, provider_config, output_file, num_threads=1):
-    max_bytes = 3000  # Google Cloud TTS limit in bytes
+    max_bytes = 4000  # Google Cloud TTS limit in bytes
     max_sentence_bytes = 100  # Maximum byte size for a single sentence
     base_audio = os.path.splitext(output_file)[0]
     output_ext = os.path.splitext(output_file)[1]
@@ -226,6 +226,11 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
                     current_sentence = word
             if current_sentence:
                 split_sentences.append(current_sentence.strip())
+
+            # Add ". " to all but the last sentence
+            for i in range(len(split_sentences) - 1):
+                split_sentences[i] += ". "
+
             return split_sentences
 
     # Load state if it exists, otherwise initialize
@@ -233,42 +238,30 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
     chunks = []
     if state is None:
         sentences = re.split(r'(?<=[.!?])\s+', text)
+
+        final_sentences = []
+        for sentence in sentences:
+            if len(sentence.encode('utf-8')) > max_sentence_bytes:
+                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
+                # Join the split parts back into a single sentence with ". "
+                joined_sentence = ". ".join(split_sentences)
+                final_sentences.append(joined_sentence)
+            else:
+                final_sentences.append(sentence)
+
         current_chunk = ""
         current_chunk_bytes = 0
 
-        for sentence in sentences:
-            sentence_bytes = len(sentence.encode("utf-8"))
-
-            if sentence_bytes > max_bytes:
-                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
-                for s in split_sentences:
-                    s_bytes = len(s.encode('utf-8'))
-                    if current_chunk_bytes + s_bytes <= max_bytes:
-                        current_chunk += (" " + s) if current_chunk else s
-                        current_chunk_bytes += s_bytes
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                            current_chunk = ""
-                            current_chunk_bytes = 0
-                        current_chunk = s
-                        chunks.append(current_chunk)
-                        current_chunk = ""
-                        current_chunk_bytes = 0
+        for sentence in final_sentences:
+            s_bytes = len(sentence.encode('utf-8'))
+            if current_chunk_bytes + s_bytes <= max_bytes:
+                current_chunk += (" " + sentence) if current_chunk else sentence
+                current_chunk_bytes += s_bytes
             else:
-                if current_chunk_bytes + sentence_bytes <= max_bytes:
-                    current_chunk += (" " + sentence) if current_chunk else sentence
-                    current_chunk_bytes += sentence_bytes
-                else:
+                if current_chunk:
                     chunks.append(current_chunk)
-                    current_chunk = sentence
-                    current_chunk_bytes = sentence_bytes
-
-            if current_chunk:
-                if len(current_chunk.encode('utf-8')) >= max_bytes:
-                    chunks.append(current_chunk)
-                    current_chunk = ""
-                    current_chunk_bytes = 0
+                current_chunk = sentence
+                current_chunk_bytes = s_bytes
 
         if current_chunk:
             chunks.append(current_chunk)
