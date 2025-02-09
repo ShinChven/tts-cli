@@ -19,11 +19,24 @@ def load_config():
     with open(config_path, "r") as f:
         return json.load(f)
 
+def clean_markdown(text):
+    text = re.sub(r'\n', ' ', text)
+    text = re.sub(r'([*_~`#>\-]|^[\d+\. ])', '', text)
+    text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)
+    text = re.sub(r'!\[(.*?)\]\(.*?\)', r'\1', text)
+    text = re.sub(r'<(.*?)>', '', text)
+    text = re.sub(r'\{.*\}', '', text)
+    text = re.sub(r' +', ' ', text)
+    return text
+
 def read_text_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     if ext in ['.txt', '.md']:
         with open(filepath, "r", encoding="utf-8") as f:
-            return f.read()
+            text = f.read()
+        if ext == '.md':
+            text = clean_markdown(text)
+        return text
     elif ext == '.pdf':
         from PyPDF2 import PdfReader
         text = ""
