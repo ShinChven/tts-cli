@@ -172,27 +172,18 @@ def synthesize_azure(text, provider_config, output_file, force=False):
 
 def synthesize_google(text, provider_config, output_file):
     max_bytes = 3000  # Google Cloud TTS limit in bytes
+    SENTENCE_MAX_BYTES = 200  # Constant for checking long sentences
 
-    # Updated function to split text on sentence boundaries, with a word-splitting fallback.
+    # Updated function: if sentence exceeds SENTENCE_MAX_BYTES, insert a comma instead of splitting
     def chunk_text_by_bytes(text, max_bytes):
         sentences = re.split(r'(?<=[.!?])\s+', text)
         chunks = []
         current_chunk = ""
         for sentence in sentences:
-            # Fallback if a sentence itself is too long.
-            if len(sentence.encode("utf-8")) > max_bytes:
-                words = sentence.split()
-                for word in words:
-                    if len(word.encode("utf-8")) > max_bytes:
-                        raise Exception(f"Word '{word}' exceeds the maximum byte limit. Consider increasing max_bytes.")
-                    candidate = (current_chunk + " " + word).strip() if current_chunk else word
-                    if len(candidate.encode("utf-8")) > max_bytes:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = word
-                    else:
-                        current_chunk = candidate
-                continue
+            if len(sentence.encode("utf-8")) > SENTENCE_MAX_BYTES:
+                # Insert a comma at the cutoff point (approximate; assumes mostly ASCII)
+                cutoff = SENTENCE_MAX_BYTES
+                sentence = sentence[:cutoff] + "," + sentence[cutoff:]
             candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
             if len(candidate.encode("utf-8")) > max_bytes:
                 if current_chunk:
