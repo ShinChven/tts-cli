@@ -167,6 +167,121 @@ def synthesize_azure(text, provider_config, output_file, force=False):
             raise Exception("Speech synthesis failed")
         print(f"Audio saved to {output_file}")
 
+def synthesize_google(text, provider_config, output_file):
+    from google.cloud import texttospeech
+    max_bytes = 5000  # Google Cloud TTS limit in bytes
+
+    # Function to split text ensuring each chunk's byte-length is under max_bytes
+    def chunk_text_by_bytes(text, max_bytes):
+        words = text.split()
+        chunks = []
+        current_chunk = ""
+        for word in words:
+            candidate = (current_chunk + " " + word).strip() if current_chunk else word
+            if len(candidate.encode("utf-8")) > max_bytes:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = word
+                else:
+                    # If a single word exceeds the byte limit, perform a hard break.
+                    candidate_bytes = candidate.encode("utf-8")
+                    part = candidate_bytes[:max_bytes]
+                    current_chunk = part.decode("utf-8", errors="ignore")
+                    chunks.append(current_chunk)
+                    current_chunk = ""
+            else:
+                current_chunk = candidate
+        if current_chunk:
+            chunks.append(current_chunk)
+        return chunks
+
+    if len(text.encode("utf-8")) > max_bytes:
+        print(f"Text byte length ({len(text.encode('utf-8'))}) exceeds {max_bytes}, splitting into chunks.")
+        chunks = chunk_text_by_bytes(text, max_bytes)
+        total = len(chunks)
+        base_audio = os.path.splitext(output_file)[0]
+        output_ext = os.path.splitext(output_file)[1]
+        chunk_files = []  # Track individual chunk audio files
+        for i, chunk in enumerate(chunks, start=1):
+            part_file = f"{base_audio}_part{i}{output_ext}"
+            chunk_files.append(part_file)
+            chunk_text_file = f"{base_audio}_part{i}-text.txt"
+            with open(chunk_text_file, "w", encoding="utf-8") as f:
+                f.write(chunk)
+            print(f"Chunk {i} text saved to {chunk_text_file}")
+
+            print(f"Synthesizing chunk {i}/{total} to {part_file}")
+
+            client = texttospeech.TextToSpeechClient()
+            voice_name = provider_config.get("voice", "en-US-Wavenet-D")
+            language_code = "-".join(voice_name.split("-")[:2])
+            voice = texttospeech.VoiceSelectionParams(
+                language_code=language_code,
+                name=voice_name
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
+            synthesis_input = texttospeech.SynthesisInput(text=chunk)
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            with open(part_file, "wb") as out:
+                out.write(response.audio_content)
+            print(f"Chunk {i} saved to {part_file}")
+
+        # Merge audio chunks using ffmpeg directly
+        import subprocess
+        base_audio = os.path.splitext(output_file)[0]
+        temp_list = f"{base_audio}_filelist.txt"
+        with open(temp_list, "w", encoding="utf-8") as f:
+            for file in chunk_files:
+                f.write(f"file '{os.path.abspath(file)}'\n")
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", temp_list,
+            "-c", "copy",
+            output_file
+        ]
+        subprocess.run(cmd, check=True)
+        print(f"Merged audio saved to {output_file}")
+        os.remove(temp_list)
+        for i, audio_file in enumerate(chunk_files, start=1):
+            try:
+                os.remove(audio_file)
+            except OSError as e:
+                print(f"Error removing file {audio_file}: {e}")
+            text_file = f"{base_audio}_part{i}-text.txt"
+            try:
+                os.remove(text_file)
+            except OSError as e:
+                print(f"Error removing text file {text_file}: {e}")
+    else:
+        client = texttospeech.TextToSpeechClient()
+        voice_name = provider_config.get("voice", "en-US-Wavenet-D")
+        language_code = "-".join(voice_name.split("-")[:2])
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=language_code,
+            name=voice_name
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3
+        )
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice,
+            audio_config=audio_config
+        )
+        with open(output_file, "wb") as out:
+            out.write(response.audio_content)
+        print(f"Audio saved to {output_file}")
+
 def main():
     parser = argparse.ArgumentParser(description="Convert text files to speech audio.")
     parser.add_argument("file", help="Path to the input text file")
@@ -203,6 +318,8 @@ def main():
 
     if provider_type == "azure":
         synthesize_azure(text, provider_conf, output_file, force=args.force)
+    elif provider_type == "google":
+        synthesize_google(text, provider_conf, output_file)
     else:
         print("Provider not supported yet.")
 

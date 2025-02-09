@@ -36,6 +36,12 @@ Create a configuration file at `~/.local/tts-cli/config.json`. Example:
             "service_region": "YOUR_SERVICE_REGION",
             "voice": "YOUR_VOICE_NAME",
             "output_format": "wav"  // or "mp3"
+        },
+        "google": {
+            "type": "google",
+            "credentials_json": "path/to/your/google-credentials.json",
+            "voice": "en-US-Journey-F",
+            "output_format": "wav"  // or "mp3"
         }
     }
 }
@@ -62,6 +68,7 @@ python -m tts_cli.main path/to/your/file.txt
 - For long texts, the tool splits the content into chunks and merges the audio segments.
 - Use the `-f` or `--force` flag to bypass confirmation prompts during multi-chunk synthesis.
 - Requires ffmpeg to merge audio chunks. Please install ffmpeg and ensure it is in your system PATH.
+- Google Cloud Text-to-Speech also supports text chunking for long texts.
 
 ## Troubleshooting
 

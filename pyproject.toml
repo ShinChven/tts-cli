@@ -14,7 +14,8 @@ dependencies = [
   "python-docx",
   "python-pptx",
   "requests",
-  "beautifulsoup4"
+  "beautifulsoup4",
+  "google-cloud-texttospeech"
 ]
 
 [project.scripts]
