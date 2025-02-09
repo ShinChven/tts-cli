@@ -82,6 +82,7 @@ python -m tts_cli.main path/to/your/file.txt
 - When a URL is provided, the tool fetches the page content and automatically extracts the main article text.
 - For long texts, the tool splits the content into chunks and merges the audio segments.
 - Use the `-f` or `--force` flag to bypass confirmation prompts during multi-chunk synthesis.
+- Use the `-t` or `--threads` flag to specify the number of threads for Google Cloud Text-to-Speech concurrent synthesis.
 - Requires ffmpeg to merge audio chunks. Please install ffmpeg and ensure it is in your system PATH.
 - Google Cloud Text-to-Speech also supports text chunking for long texts.
 - Google Cloud Text-to-Speech supports batching and continuing from the last processed chunk.
