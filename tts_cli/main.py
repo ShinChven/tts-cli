@@ -222,53 +222,65 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
         sentences = re.split(r'(?<=[.!?])\s+', text)
         current_chunk = ""
         current_chunk_bytes = 0
-        sentence_index = 0
 
-        while sentence_index < len(sentences):
-            sentence = sentences[sentence_index]
+        for sentence in sentences:
             sentence_bytes = len(sentence.encode("utf-8"))
 
-            if current_chunk_bytes + sentence_bytes <= max_bytes:
-                current_chunk += (" " + sentence) if current_chunk else sentence
-                current_chunk_bytes += sentence_bytes
-                sentence_index += 1
+            if sentence_bytes > max_bytes:
+                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
+                for s in split_sentences:
+                    s_bytes = len(s.encode('utf-8'))
+                    if current_chunk_bytes + s_bytes <= max_bytes:
+                        current_chunk += (" " + s) if current_chunk else s
+                        current_chunk_bytes += s_bytes
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                            current_chunk = ""
+                            current_chunk_bytes = 0
+                        current_chunk = s
+                        chunks.append(current_chunk)
+                        current_chunk = ""
+                        current_chunk_bytes = 0
             else:
-                if not current_chunk:  # If the sentence is too long for an empty chunk
-                    split_sentences = split_long_sentence(sentence, max_sentence_bytes)
-                    for split_sentence in split_sentences:
-                        split_sentence_bytes = len(split_sentence.encode("utf-8"))
-                        if current_chunk_bytes + split_sentence_bytes <= max_bytes:
-                            current_chunk += (" " + split_sentence) if current_chunk else split_sentence
-                            current_chunk_bytes += split_sentence_bytes
-                        else:
-                            if current_chunk:
-                                chunks.append(current_chunk)
-                            current_chunk = split_sentence
-                            current_chunk_bytes = len(split_sentence.encode("utf-8"))
-                    sentence_index += 1
+                if current_chunk_bytes + sentence_bytes <= max_bytes:
+                    current_chunk += (" " + sentence) if current_chunk else sentence
+                    current_chunk_bytes += sentence_bytes
                 else:
+                    chunks.append(current_chunk)
+                    current_chunk = sentence
+                    current_chunk_bytes = sentence_bytes
+
+            if current_chunk:
+                if len(current_chunk.encode('utf-8')) >= max_bytes:
                     chunks.append(current_chunk)
                     current_chunk = ""
                     current_chunk_bytes = 0
 
-            if current_chunk:
-                chunks.append(current_chunk)
+        if current_chunk:
+            chunks.append(current_chunk)
+
         state = {"completed_chunks": [], "chunks": chunks}
         save_state(state)  # Save the initial state to create the file
     else:
         chunks = state["chunks"]
 
     completed_chunks = state["completed_chunks"]
-
     total = len(chunks)
+
+    # Create a list of chunks that haven't been processed yet
+    remaining_chunks = [
+        (i, chunk) for i, chunk in enumerate(chunks)
+        if f"{base_audio}_part{i+1}{output_ext}" not in completed_chunks
+    ]
 
     # Print information before starting synthesis
     total_chars = len(text)
     print(f"Total characters: {total_chars}")
     print(f"Number of batches: {total}")
-    completed_count = len(completed_chunks)
-    print(f"Resuming from {completed_count + 1}/{total}" if completed_count > 0 else "Starting from scratch")
-    print("Progress: 0.00%")
+    print(f"Remaining batches: {len(remaining_chunks)}")
+    print(f"Completed: {len(completed_chunks)}/{total}")
+    print("Progress: {:.2f}%".format(len(completed_chunks) / total * 100))
 
     def synthesize_chunk(i, chunk):
         part_file = f"{base_audio}_part{i+1}{output_ext}"
@@ -315,7 +327,7 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
 
     # Concurrent synthesis
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        executor.map(lambda item: synthesize_chunk(item[0], item[1]), enumerate(chunks))
+        executor.map(lambda x: synthesize_chunk(*x), remaining_chunks)
 
     # Merge audio chunks using ffmpeg directly
     import subprocess
