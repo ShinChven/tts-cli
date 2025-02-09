@@ -172,7 +172,7 @@ def synthesize_azure(text, provider_config, output_file, force=False):
 
 def synthesize_google(text, provider_config, output_file):
     max_bytes = 3000  # Google Cloud TTS limit in bytes
-    max_sentence_bytes = 200 # Maximum byte size for a single sentence
+    max_sentence_bytes = 150 # Maximum byte size for a single sentence
 
     def split_long_sentence(text, max_sentence_bytes):
         sentences = re.split(r'(?<=[.!?])\s+', text)
