@@ -335,6 +335,9 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
     with open(temp_list, "w", encoding="utf-8") as f:
         for file in completed_chunks:
             f.write(f"file '{os.path.abspath(file)}'\n")
+    if len(completed_chunks) != total:
+        print("Not all synthesis tasks completed. Aborting merge.")
+        return
     cmd = [
         "ffmpeg",
         "-y",
