@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 # New global import for Google TTS.
 from google.cloud import texttospeech
+from concurrent.futures import ThreadPoolExecutor
 
 def load_config():
     config_path = os.path.expanduser("~/.local/tts-cli/config.json")
@@ -170,146 +171,84 @@ def synthesize_azure(text, provider_config, output_file, force=False):
             raise Exception("Speech synthesis failed")
         print(f"Audio saved to {output_file}")
 
-def synthesize_google(text, provider_config, output_file):
+def synthesize_google(text, provider_config, output_file, num_threads=1):
     max_bytes = 3000  # Google Cloud TTS limit in bytes
-    max_sentence_bytes = 150 # Maximum byte size for a single sentence
+    max_sentence_bytes = 100  # Maximum byte size for a single sentence
+    base_audio = os.path.splitext(output_file)[0]
+    output_ext = os.path.splitext(output_file)[1]
 
-    def split_long_sentence(text, max_sentence_bytes):
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        split_sentences = []
-        for sentence in sentences:
-            if len(sentence.encode('utf-8')) > max_sentence_bytes:
-                # Split the long sentence by commas
-                comma_split = sentence.split(',')
+    def split_long_sentence(sentence, max_sentence_bytes):
+        if len(sentence.encode('utf-8')) <= max_sentence_bytes:
+            return [sentence]
 
-                # If even comma split doesn't work, force split by space
-                if any(len(s.encode('utf-8')) > max_sentence_bytes for s in comma_split):
-                    space_split = sentence.split(' ')
+        # If even space split doesn't work, force split by characters
+        space_split = sentence.split(' ')
+        if any(len(s.encode('utf-8')) > max_sentence_bytes for s in space_split):
+            print("Force splitting extremely long word/sequence.")
+            cutoff = max_sentence_bytes // 3
+            return [sentence[i:i + cutoff] for i in range(0, len(sentence), cutoff)]
+        else:
+            # Rejoin space split
+            split_sentences = []
+            current_sentence = ""
+            for word in space_split:
+                if len((current_sentence + " " + word).encode('utf-8')) <= max_sentence_bytes:
+                    current_sentence += " " + word
+                else:
+                    split_sentences.append(current_sentence.strip())
+                    current_sentence = word
+            if current_sentence:
+                split_sentences.append(current_sentence.strip())
+            return split_sentences
 
-                    # If even space split doesn't work, force split by characters
-                    if any(len(s.encode('utf-8')) > max_sentence_bytes for s in space_split):
-                        print("Force splitting extremely long word/sequence.")
-                        cutoff = max_sentence_bytes // 3
-                        i = 0
-                        while i < len(sentence):
-                            split_sentences.append(sentence[i:i+cutoff])
-                            i += cutoff
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = ""
+    current_chunk_bytes = 0
+    sentence_index = 0
+
+    while sentence_index < len(sentences):
+        sentence = sentences[sentence_index]
+        sentence_bytes = len(sentence.encode("utf-8"))
+
+        if current_chunk_bytes + sentence_bytes <= max_bytes:
+            current_chunk += (" " + sentence) if current_chunk else sentence
+            current_chunk_bytes += sentence_bytes
+            sentence_index += 1
+        else:
+            if not current_chunk:  # If the sentence is too long for an empty chunk
+                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
+                for split_sentence in split_sentences:
+                    split_sentence_bytes = len(split_sentence.encode("utf-8"))
+                    if current_chunk_bytes + split_sentence_bytes <= max_bytes:
+                        current_chunk += (" " + split_sentence) if current_chunk else split_sentence
+                        current_chunk_bytes += split_sentence_bytes
                     else:
-                        # Rejoin space split
-                        current_sentence = ""
-                        for word in space_split:
-                            if len((current_sentence + " " + word).encode('utf-8')) <= max_sentence_bytes:
-                                current_sentence += " " + word
-                            else:
-                                split_sentences.append(current_sentence.strip())
-                                current_sentence = word
-                        if current_sentence:
-                            split_sentences.append(current_sentence.strip())
-                else:
-                    # Rejoin comma split
-                    current_sentence = ""
-                    for part in comma_split:
-                        if len((current_sentence + "," + part).encode('utf-8')) <= max_sentence_bytes:
-                            current_sentence += "," + part
-                        else:
-                            split_sentences.append(current_sentence.strip(','))
-                            current_sentence = part
-                    if current_sentence:
-                        split_sentences.append(current_sentence.strip(','))
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        current_chunk = split_sentence
+                        current_chunk_bytes = len(split_sentence.encode("utf-8"))
+                sentence_index += 1
             else:
-                split_sentences.append(sentence)
-        return ". ".join(split_sentences)
-
-    if len(text.encode("utf-8")) > max_bytes:
-        print(f"Text byte length ({len(text.encode('utf-8'))}) exceeds {max_bytes}, splitting into chunks.")
-
-        # Splitting into chunks by max_bytes
-        def chunk_text_by_bytes(text, max_bytes):
-            sentences = re.split(r'(?<=[.!?])\s+', text)
-            chunks = []
-            current_chunk = ""
-            for sentence in sentences:
-                candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
-                if len(candidate.encode("utf-8")) > max_bytes:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    current_chunk = sentence
-                else:
-                    current_chunk = candidate
-            if current_chunk:
                 chunks.append(current_chunk)
-            return chunks
+                current_chunk = ""
+                current_chunk_bytes = 0
 
-        chunks = chunk_text_by_bytes(text, max_bytes)
-        total = len(chunks)
-        base_audio = os.path.splitext(output_file)[0]
-        output_ext = os.path.splitext(output_file)[1]
-        chunk_files = []  # Track individual chunk audio files
-        for i, chunk in enumerate(chunks, start=1):
-            # Split long sentences within the chunk
-            chunk = split_long_sentence(chunk, max_sentence_bytes)
+    if current_chunk:
+        chunks.append(current_chunk)
 
-            part_file = f"{base_audio}_part{i}{output_ext}"
-            chunk_files.append(part_file)
-            chunk_text_file = f"{base_audio}_part{i}-text.txt"
-            with open(chunk_text_file, "w", encoding="utf-8") as f:
-                f.write(chunk)
-            print(f"Chunk {i} text saved to {chunk_text_file}")
+    total = len(chunks)
+    chunk_files = []
 
-            print(f"Synthesizing chunk {i}/{total} to {part_file}")
+    def synthesize_chunk(i, chunk):
+        part_file = f"{base_audio}_part{i+1}{output_ext}"
+        chunk_files.append(part_file)
+        chunk_text_file = f"{base_audio}_part{i+1}-text.txt"
+        with open(chunk_text_file, "w", encoding="utf-8") as f:
+            f.write(chunk)
+        print(f"Chunk {i+1} text saved to {chunk_text_file}")
 
-            client = texttospeech.TextToSpeechClient()
-            voice_name = provider_config.get("voice", "en-US-Wavenet-D")
-            language_code = "-".join(voice_name.split("-")[:2])
-            voice = texttospeech.VoiceSelectionParams(
-                language_code=language_code,
-                name=voice_name
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3
-            )
-            synthesis_input = texttospeech.SynthesisInput(text=chunk)
-            response = client.synthesize_speech(
-                input=synthesis_input,
-                voice=voice,
-                audio_config=audio_config
-            )
-            with open(part_file, "wb") as out:
-                out.write(response.audio_content)
-            print(f"Chunk {i} saved to {part_file}")
-
-        # Merge audio chunks using ffmpeg directly
-        import subprocess
-        base_audio = os.path.splitext(output_file)[0]
-        temp_list = f"{base_audio}_filelist.txt"
-        with open(temp_list, "w", encoding="utf-8") as f:
-            for file in chunk_files:
-                f.write(f"file '{os.path.abspath(file)}'\n")
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", temp_list,
-            "-c", "copy",
-            output_file
-        ]
-        subprocess.run(cmd, check=True)
-        print(f"Merged audio saved to {output_file}")
-        os.remove(temp_list)
-        for i, audio_file in enumerate(chunk_files, start=1):
-            try:
-                os.remove(audio_file)
-            except OSError as e:
-                print(f"Error removing file {audio_file}: {e}")
-            text_file = f"{base_audio}_part{i}-text.txt"
-            try:
-                os.remove(text_file)
-            except OSError as e:
-                print(f"Error removing text file {text_file}: {e}")
-    else:
-        # Split long sentences within the text
-        text = split_long_sentence(text, max_sentence_bytes)
+        print(f"Synthesizing chunk {i+1}/{total} to {part_file}")
 
         client = texttospeech.TextToSpeechClient()
         voice_name = provider_config.get("voice", "en-US-Wavenet-D")
@@ -321,21 +260,57 @@ def synthesize_google(text, provider_config, output_file):
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3
         )
-        synthesis_input = texttospeech.SynthesisInput(text=text)
+        synthesis_input = texttospeech.SynthesisInput(text=chunk)
         response = client.synthesize_speech(
             input=synthesis_input,
             voice=voice,
             audio_config=audio_config
         )
-        with open(output_file, "wb") as out:
+        with open(part_file, "wb") as out:
             out.write(response.audio_content)
-        print(f"Audio saved to {output_file}")
+        print(f"Chunk {i+1} saved to {part_file}")
+
+    # Concurrent synthesis
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        executor.map(lambda item: synthesize_chunk(item[0], item[1]), enumerate(chunks))
+
+    # Merge audio chunks using ffmpeg directly
+    import subprocess
+    temp_list = f"{base_audio}_filelist.txt"
+    with open(temp_list, "w", encoding="utf-8") as f:
+        for file in chunk_files:
+            f.write(f"file '{os.path.abspath(file)}'\n")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", temp_list,
+        "-c", "copy",
+        output_file
+    ]
+    subprocess.run(cmd, check=True)
+    print(f"Merged audio saved to {output_file}")
+    os.remove(temp_list)
+    for file in chunk_files:
+        try:
+            os.remove(file)
+        except OSError as e:
+            print(f"Error removing file {file}: {e}")
+        text_file = file.replace(output_ext, "-text.txt")
+        try:
+            os.remove(text_file)
+        except OSError as e:
+            print(f"Error removing text file {text_file}: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Convert text files to speech audio.")
     parser.add_argument("file", help="Path to the input text file")
     parser.add_argument("-f", "--force", action="store_true", default=False,
                         help="Force multi-chunk synthesis without confirmation")
+    # Add argument for number of threads
+    parser.add_argument("-t", "--threads", type=int, default=1,
+                        help="Number of threads for concurrent synthesis (default: 1)")
     args = parser.parse_args()
 
     filepath = args.file
@@ -368,7 +343,8 @@ def main():
     if provider_type == "azure":
         synthesize_azure(text, provider_conf, output_file, force=args.force)
     elif provider_type == "google":
-        synthesize_google(text, provider_conf, output_file)
+        # Pass num_threads to synthesize_google
+        synthesize_google(text, provider_conf, output_file, num_threads=args.threads)
     else:
         print("Provider not supported yet.")
 
