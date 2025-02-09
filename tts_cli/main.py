@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 # New global import for Google TTS.
 from google.cloud import texttospeech
 from concurrent.futures import ThreadPoolExecutor
+import unicodedata
 
 def load_config():
     config_path = os.path.expanduser("~/.local/tts-cli/config.json")
@@ -27,6 +28,15 @@ def clean_markdown(text):
     text = re.sub(r'<(.*?)>', '', text)
     text = re.sub(r'\{.*\}', '', text)
     text = re.sub(r' +', ' ', text)
+    return text
+
+# New: clean text to keep only regular speakable characters
+def clean_speakable_text(text):
+    # Normalize text to decompose combined characters.
+    text = unicodedata.normalize('NFKD', text)
+    # Remove non-ASCII characters and keep letters, numbers, spaces and common punctuation.
+    text = re.sub(r"[^a-zA-Z0-9\s\.\,\?\!\:\;\-']", '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def read_text_file(filepath):
@@ -185,6 +195,26 @@ def synthesize_azure(text, provider_config, output_file, force=False):
             raise Exception("Speech synthesis failed")
         print(f"Audio saved to {output_file}")
 
+# New: recursively process a sentence so that its byte length is under max_sentence_bytes.
+def process_sentence(sentence, max_sentence_bytes):
+    sentence = sentence.strip()
+    if len(sentence.encode("utf-8")) <= max_sentence_bytes:
+        return [sentence]
+    words = sentence.split()
+    pieces = []
+    current = ""
+    for word in words:
+        candidate = (current + " " + word).strip() if current else word
+        if len(candidate.encode("utf-8")) <= max_sentence_bytes:
+            current = candidate
+        else:
+            pieces.append(current)
+            current = word
+    if current:
+        pieces.append(current)
+    return pieces
+
+# In the synthesize_google function, update the sentence splitting logic:
 def synthesize_google(text, provider_config, output_file, num_threads=1):
     max_bytes = 4000  # Google Cloud TTS limit in bytes
     max_sentence_bytes = 100  # Maximum byte size for a single sentence
@@ -204,35 +234,6 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
         except FileNotFoundError:
             return None
 
-    def split_long_sentence(sentence, max_sentence_bytes):
-        if len(sentence.encode('utf-8')) <= max_sentence_bytes:
-            return [sentence]
-
-        # If even space split doesn't work, force split by characters
-        space_split = sentence.split(' ')
-        if any(len(s.encode('utf-8')) > max_sentence_bytes for s in space_split):
-            print("Force splitting extremely long word/sequence.")
-            cutoff = max_sentence_bytes // 3
-            return [sentence[i:i + cutoff] for i in range(0, len(sentence), cutoff)]
-        else:
-            # Rejoin space split
-            split_sentences = []
-            current_sentence = ""
-            for word in space_split:
-                if len((current_sentence + " " + word).encode('utf-8')) <= max_sentence_bytes:
-                    current_sentence += " " + word
-                else:
-                    split_sentences.append(current_sentence.strip())
-                    current_sentence = word
-            if current_sentence:
-                split_sentences.append(current_sentence.strip())
-
-            # Add ". " to all but the last sentence
-            for i in range(len(split_sentences) - 1):
-                split_sentences[i] += ". "
-
-            return split_sentences
-
     # Load state if it exists, otherwise initialize
     state = load_state()
     chunks = []
@@ -241,13 +242,9 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
 
         final_sentences = []
         for sentence in sentences:
-            if len(sentence.encode('utf-8')) > max_sentence_bytes:
-                split_sentences = split_long_sentence(sentence, max_sentence_bytes)
-                # Join the split parts back into a single sentence with ". "
-                joined_sentence = ". ".join(split_sentences)
-                final_sentences.append(joined_sentence)
-            else:
-                final_sentences.append(sentence)
+            pieces = process_sentence(sentence, max_sentence_bytes)
+            # Join the pieces so that TTS treats them as multiple sentences.
+            final_sentences.append(". ".join(pieces))
 
         current_chunk = ""
         current_chunk_bytes = 0
@@ -304,25 +301,29 @@ def synthesize_google(text, provider_config, output_file, num_threads=1):
 
         print(f"Synthesizing chunk {i+1}/{total} to {part_file}")
 
-        client = texttospeech.TextToSpeechClient()
-        voice_name = provider_config.get("voice", "en-US-Wavenet-D")
-        language_code = "-".join(voice_name.split("-")[:2])
-        voice = texttospeech.VoiceSelectionParams(
-            language_code=language_code,
-            name=voice_name
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
-        synthesis_input = texttospeech.SynthesisInput(text=chunk)
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice,
-            audio_config=audio_config
-        )
-        with open(part_file, "wb") as out:
-            out.write(response.audio_content)
-        print(f"Chunk {i+1} saved to {part_file}")
+        try:
+            client = texttospeech.TextToSpeechClient()
+            voice_name = provider_config.get("voice", "en-US-Wavenet-D")
+            language_code = "-".join(voice_name.split("-")[:2])
+            voice = texttospeech.VoiceSelectionParams(
+                language_code=language_code,
+                name=voice_name
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
+            synthesis_input = texttospeech.SynthesisInput(text=chunk)
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            with open(part_file, "wb") as out:
+                out.write(response.audio_content)
+            print(f"Chunk {i+1} saved to {part_file}")
+        except Exception as e:
+            print(f"Error synthesizing chunk {i+1}: {e}")
+            raise
 
         # Save state after each chunk
         with state_lock: # Acquire the lock
@@ -390,6 +391,9 @@ def main():
     else:
         text = read_text_file(filepath)
         base_name = os.path.splitext(filepath)[0]
+
+    # Clean entire text to keep only regular speakable characters.
+    text = clean_speakable_text(text)
 
     config = load_config()
     default_provider_key = config.get("default_provider")
