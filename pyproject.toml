@@ -1,6 +1,6 @@
 [project]
 name = "tts_cli"
-version = "0.4.1"
+version = "0.4.2"
 description = "CLI to convert text files to voice audio using Cloud Speech services"
 # Added author and repository information
 authors = [

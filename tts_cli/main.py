@@ -216,7 +216,7 @@ def process_sentence(sentence, max_sentence_bytes):
 
 # In the synthesize_google function, update the sentence splitting logic:
 def synthesize_google(text, provider_config, output_file, num_threads=1):
-    max_bytes = 4000  # Google Cloud TTS limit in bytes
+    max_bytes = 2000  # Google Cloud TTS limit in bytes
     max_sentence_bytes = 100  # Maximum byte size for a single sentence
     base_audio = os.path.splitext(output_file)[0]
     output_ext = os.path.splitext(output_file)[1]
