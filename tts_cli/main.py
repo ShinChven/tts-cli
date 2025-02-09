@@ -1,13 +1,16 @@
 import os
 import json
 import argparse
+import re  # already imported globally
+from urllib.parse import urlparse
 
 # For Azure Speech SDK
 import azure.cognitiveservices.speech as speechsdk
 import requests
 from bs4 import BeautifulSoup
-import re
-from urllib.parse import urlparse
+
+# New global import for Google TTS.
+from google.cloud import texttospeech
 
 def load_config():
     config_path = os.path.expanduser("~/.local/tts-cli/config.json")
@@ -168,27 +171,33 @@ def synthesize_azure(text, provider_config, output_file, force=False):
         print(f"Audio saved to {output_file}")
 
 def synthesize_google(text, provider_config, output_file):
-    from google.cloud import texttospeech
     max_bytes = 3000  # Google Cloud TTS limit in bytes
 
-    # Function to split text ensuring each chunk's byte-length is under max_bytes
+    # Updated function to split text on sentence boundaries, with a word-splitting fallback.
     def chunk_text_by_bytes(text, max_bytes):
-        words = text.split()
+        sentences = re.split(r'(?<=[.!?])\s+', text)
         chunks = []
         current_chunk = ""
-        for word in words:
-            candidate = (current_chunk + " " + word).strip() if current_chunk else word
+        for sentence in sentences:
+            # Fallback if a sentence itself is too long.
+            if len(sentence.encode("utf-8")) > max_bytes:
+                words = sentence.split()
+                for word in words:
+                    if len(word.encode("utf-8")) > max_bytes:
+                        raise Exception(f"Word '{word}' exceeds the maximum byte limit. Consider increasing max_bytes.")
+                    candidate = (current_chunk + " " + word).strip() if current_chunk else word
+                    if len(candidate.encode("utf-8")) > max_bytes:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        current_chunk = word
+                    else:
+                        current_chunk = candidate
+                continue
+            candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
             if len(candidate.encode("utf-8")) > max_bytes:
                 if current_chunk:
                     chunks.append(current_chunk)
-                    current_chunk = word
-                else:
-                    # If a single word exceeds the byte limit, perform a hard break.
-                    candidate_bytes = candidate.encode("utf-8")
-                    part = candidate_bytes[:max_bytes]
-                    current_chunk = part.decode("utf-8", errors="ignore")
-                    chunks.append(current_chunk)
-                    current_chunk = ""
+                current_chunk = sentence
             else:
                 current_chunk = candidate
         if current_chunk:
